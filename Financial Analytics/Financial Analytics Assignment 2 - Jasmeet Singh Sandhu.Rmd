@@ -1,0 +1,192 @@
+---
+title: "Financial Analytics Assignment 2 - Jasmeet Singh Sandhu"
+output:
+  html_document:
+    df_print: paged
+date: "2023-01-23"
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(quantmod)
+library(PerformanceAnalytics)
+```
+
+The names of the selected companies are in the file Industrial_Health_Names.csv The period of observation is from="2014-7-1", to="2015-7-1"
+
+For the sector indices use SPDR XLV (health care sector) and XLI (industrial sector) For the broad market index use SPY For the risk free rate use Fed Funds effective rate
+
+Note that it may not be possible to find interpretation of PCA factors in terms of real assets or indices. In such cases it is possible to use PCA factors without interpretation
+
+```{r, warning=FALSE, include = FALSE}
+
+# Read list of stock names
+datapath <- 'C:\\Users\\jasme\\Downloads\\UChicago\\Quarter2\\Financial Analytics\\Week2\\'
+SP500.Industrials.Health <- read.table(paste(datapath,'assignments_Fonancial Analytics (32001)_Lecture 2_Industrials_Health_Names.csv',sep = '/'), sep = ',', header = FALSE)
+SP500.Industrials.Health.names <- as.character(SP500.Industrials.Health[,1])
+SP500.Industrials.Health.names
+
+getSymbols(SP500.Industrials.Health.names,from="2014-7-1",to="2015-7-1")
+getSymbols("XLV", from="2014-7-1", to = "2015-7-1")
+getSymbols("XLI", from="2014-7-1" ,to = "2015-7-1")
+getSymbols("SPY", from="2014-7-1", to = "2015-7-1")
+getSymbols("DFF", src = "FRED", from="2014-7-1", to="2015-7-1")
+
+## Adjusting the fedFundsRate to daily return
+fedFundsRate = (DFF[rownames(data.frame(SPY))]/365)/100
+
+head(SPY)
+head(fedFundsRate)
+```
+
+## Creating efficient frontier
+
+```{r}
+# Calculate mean and standard deviation for each stock
+Mean.Sd.SP500.companies = cbind(
+    sd = sapply(SP500.Industrials.Health.names, function(z) sd(diff(log(get(z)[,6])), na.rm=TRUE)),
+    mean = sapply(SP500.Industrials.Health.names, function(z) mean(diff(log(get(z)[,6])), na.rm=TRUE))
+)
+# Calculate the mean and standard deviation for SPY (broad index)
+Mean.Sd.SPY = c(sd(diff(log(SPY[,6])), na.rm=TRUE),mean(diff(log(SPY[,6])), na.rm=TRUE))
+# Calculate the mean of Fed Funds
+Mean.FedFunds = mean(fedFundsRate)
+```
+
+### Plotting the SPY companies on sd-mean diagram, with SPY and risk-free rate
+
+```{r}
+plot(Mean.Sd.SP500.companies, ylab = "Mean", xlab = "Standard Deviation (proxy for Risk)", main = "Efficient Frontier", pch = 19, xlim = c(0,.03))
+points(Mean.Sd.SPY[1], Mean.Sd.SPY[2], col = "red", pch = 19)
+points(0, Mean.FedFunds, col = "green", pch = 19)
+lines(c(0,Mean.Sd.SPY[1]), c(mean(fedFundsRate), Mean.Sd.SPY[2]))
+text(Mean.Sd.SP500.companies, labels = rownames(Mean.Sd.SP500.companies), cex = .5, pos = 2)
+text(Mean.Sd.SPY[1], Mean.Sd.SPY[2], labels = "SPY", cex = .5, col = "red", pos = 2)
+```
+
+## Building CAPM model
+
+```{r, warning = FALSE}
+# Extracting the coefficients: Asset return - Risk free return = Beta(Market return - risk free return)
+SP500.companies.betas = as.matrix(sapply(
+        SP500.Industrials.Health.names, function(z) 
+        lm(I(diff(log(get(z)[,6])) - fedFundsRate) ~ -1 + I(diff(log(SPY[,6])) - fedFundsRate))$coefficients
+    )
+)
+
+rownames(SP500.companies.betas) = rownames(Mean.Sd.SP500.companies)
+colnames(SP500.companies.betas) = "CAPM betas"
+
+head(SP500.companies.betas)
+```
+
+### Plotting the Betas
+
+```{r}
+plot(
+      SP500.companies.betas, Mean.Sd.SP500.companies[,2], pch = 19,
+      main = "CAPM", xlim = c(0,2), ylab = "Expected Returns", xlab = "Beta", ylim = c(0, 0.001)
+)
+points(1, Mean.Sd.SPY[2], col = "red", pch = 19)
+points(0, Mean.FedFunds, col = "green", pch = 19)
+lines(c(0,1), c(Mean.FedFunds,Mean.Sd.SPY[2]))
+text(SP500.companies.betas, Mean.Sd.SP500.companies[,2], labels = rownames(Mean.Sd.SP500.companies), cex = .5, pos = 2)
+text(1, Mean.Sd.SPY[2], labels = "SPY", cex = .5, col = "red", pos = 2)
+```
+
+## Arbitrage Pricing Theory
+
+```{r}
+
+Stock.Portfolio.Returns = data.frame(matrix(NA, nrow = 251, ncol = length(SP500.Industrials.Health.names)))
+colnames(Stock.Portfolio.Returns) = SP500.Industrials.Health.names
+for (i in SP500.Industrials.Health.names){
+  Stock.Portfolio.Returns[,i] = diff(log((get(i)[,6])))[-1,]
+}
+
+head(Stock.Portfolio.Returns)
+
+#Returns for the indices
+SPY.returns = as.matrix(diff(log(SPY[,6])))
+XLV.returns = as.matrix(diff(log(XLV[,6])))
+XLI.returns = as.matrix(diff(log(XLI[,6])))
+```
+
+### Step 1 Selection of factors
+
+Running the PCA on portfolio
+
+```{r}
+Stock.Portfolio.Returns.PCA = princomp(Stock.Portfolio.Returns)
+cumsum(Stock.Portfolio.Returns.PCA$sdev/sum(Stock.Portfolio.Returns.PCA$sdev))
+```
+
+From above table, we would need 13 components to describe the returns well (\>90%) but proceeding with 5 components since it explains more than 50% variance
+
+```{r}
+# Create 4 factors and 4 loadings
+Stock.Portfolio.Returns.PCA.factors = as.matrix(Stock.Portfolio.Returns.PCA$scores[, 1:5])
+Stock.Portfolio.Returns.PCA.loadings = Stock.Portfolio.Returns.PCA$loadings[, 1:5]
+Stock.Portfolio.Returns.PCA.zero.loading = Stock.Portfolio.Returns.PCA$center
+head(Stock.Portfolio.Returns.PCA.loadings)
+# Plot the loadings
+matplot(1:16, Stock.Portfolio.Returns.PCA.loadings, type="l", lty = 1)
+abline(h = 0)
+```
+
+.
+
+```{r}
+plot(SPY.returns[-1], Stock.Portfolio.Returns.PCA.factors[,1], type = "p")
+lm.fit.factor1 = lm(Stock.Portfolio.Returns.PCA.factors[,1] ~ SPY.returns[-1])
+summary(lm.fit.factor1)
+```
+
+```{r}
+plot((XLV.returns - XLI.returns)[-1], Stock.Portfolio.Returns.PCA.factors[,2], type = "p")
+lm.fit.factor2 = lm(Stock.Portfolio.Returns.PCA.factors[,2] ~ I((XLV.returns-XLI.returns)[-1]))
+summary(lm.fit.factor2)
+```
+
+The first model has a high R squared, while the second model does not.
+
+```{r}
+hist(lm.fit.factor1$residuals)
+qqnorm(lm.fit.factor1$residuals)
+qqline(lm.fit.factor1$residuals)
+
+hist(lm.fit.factor2$residuals)
+qqnorm(lm.fit.factor2$residuals)
+qqline(lm.fit.factor2$residuals)
+```
+
+### Step 2 Estimating betas
+
+```{r}
+Stock.portfolio.betas = apply(
+                             Stock.Portfolio.Returns, 2,
+                             function(z) lm(z ~ Stock.Portfolio.Returns.PCA.factors[,1] + Stock.Portfolio.Returns.PCA.factors[,2])$coefficients
+                        )
+rownames(Stock.portfolio.betas) = c("alpha","factor1","factor2")
+Stock.portfolio.betas = data.frame(t(Stock.portfolio.betas))
+Stock.portfolio.betas
+```
+
+### Step 3. Estimating market price of risk
+
+```{r}
+Market.Prices.of.risk.fit = lm(I(alpha - Mean.FedFunds)~.-1, data = Stock.portfolio.betas)
+summary(Market.Prices.of.risk.fit)
+
+Market.Prices.of.risk = c(Mean.FedFunds, Market.Prices.of.risk.fit$coefficients)
+Market.Prices.of.risk.fit$residuals
+```
+
+```{r}
+plot(Market.Prices.of.risk.fit$residuals, type = "h", xaxt = "n", xlab = "Stock")
+abline(h = 0)
+axis(1, at = 1:16, labels = SP500.Industrials.Health.names)
+```
+
+When residual is positive it means that the mean return of the stock over the sample period E(R) is greater than predicted value. Looking at the residual plot, we see that CAT residuals are very negative, this suggests that the stock is overvalued but NOC and AET have high positive residuals, This suggests that These two stocks are undervalued.

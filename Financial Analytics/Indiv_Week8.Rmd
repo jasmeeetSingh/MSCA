@@ -1,0 +1,272 @@
+---
+title: "Financial Analytics - Assignment Options"
+author: "Jasmeet Singh Sandhu"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(RQuantLib)
+library(NMOF)
+```
+
+```{r}
+S = 810
+sigma = 0.20
+r = 0.05
+d = 0.01
+X = 800
+t = 0.5
+
+price = EuropeanOption(type = "call", underlying = S, strike = X,
+                         dividendYield = d, riskFreeRate = r, maturity = t,
+                         volatility = sigma)
+price$value
+```
+```{r}
+d1 = (log(S/X) + (r  + 0.5*(sigma^2))*t)/(sigma*sqrt(t))
+d2 = d1 - (sigma*sqrt(t))
+
+C = (S * pnorm(d1, 0, 1)) - ((X*exp(-r * t))*pnorm(d2,0,1))
+
+cbind(calc_value = price$value, manual_value = C)
+```
+The values are not same
+
+```{r}
+div_yield_0 = EuropeanOption(type = "call", underlying = S, strike = X,
+                         dividendYield = 0, riskFreeRate = r, maturity = t,
+                         volatility = sigma)
+cbind(calc_value = price$value, manual_value = C, calc_value_div_0 = div_yield_0$value)
+```
+Using div_yield = 0, we get same results = 61.25612
+
+
+Higher dividend yields result in lower call prices. 
+  - Account for dividend yield by using it to discount the Underlying price in the C equation.
+  - C = S0 x (exp(-YT)) x N(d1) - (K x exp(-RT))N(d2) where Y is the dividend yield. 
+
+Account for it in the equation for d1.
+- d1 = (ln(S0/k) + (R - Y + 0.5*sigma^2) x T)/(sigma x sqrt(T))
+
+However, the equation for d2 remains the same
+- d2 = d1 - (sigma x sqrt(T))
+
+```{r}
+parity = price$value + (X*exp(-r*t)) - (S*exp(-d*t))
+parity
+
+put_price = EuropeanOption(type = "put", underlying = S, strike = X,
+                         dividendYield = d, riskFreeRate = r, maturity = t,
+                         volatility = sigma)
+put_price$value
+```
+################################################ OPTIONS HEDGING ################################################
+
+```{r}
+datapath = 'C:\\Users\\jasme\\Downloads\\UChicago\\Quarter2\\Financial Analytics\\Week9'
+df = read.csv(paste(datapath,'assignments_Fonancial Analytics (32001)_Lecture 7_OptionsPrices.CSV', sep='\\'),header = TRUE, row.names = 1, sep = ",")
+head(df)
+```
+
+```{r}
+calculateImpliedVolatility = function(dataRow){
+  myExpiry = dataRow[1]/365
+  myRate = dataRow[2]
+  myUnderlying = dataRow[3]
+  myPutStrikes = dataRow[4:8]
+  myCallStrikes = dataRow[9:14]
+  myPutPrices = dataRow[15:19]
+  myCallPrices = dataRow[20:25]
+  impVolPuts = apply(rbind(myPutPrices, myPutStrikes),2, 
+                    function(z) EuropeanOptionImpliedVolatility("put", 
+                                                                value=z[1],
+                                                                underlying=myUnderlying, 
+                                                                strike=z[2],
+                                                                dividendYield=myRate,
+                                                                riskFreeRate=myRate,
+                                                                maturity=myExpiry,
+                                                                volatility=.3))
+  impVolCalls=apply(rbind(myCallPrices,myCallStrikes),2,
+                     function(z) EuropeanOptionImpliedVolatility("call",
+                                                                 value=z[1],
+                                                                 underlying=myUnderlying,
+                                                                 strike=z[2],
+                                                                 dividendYield=myRate,
+                                                                 riskFreeRate=myRate,
+                                                                 maturity=myExpiry,
+                                                                 volatility=.3))
+  Result = cbind(Strikes=c(myPutStrikes,myCallStrikes),Volatilities=c(impVolPuts,impVolCalls))
+  rownames(Result)=c(rep("P",5),rep("C",6))
+  Result
+}
+```
+
+
+```{r}
+Row1Options = as.numeric(df[2,])
+V.1 = calculateImpliedVolatility(as.numeric(Row1Options))
+V.1
+```
+```{r}
+put1425.impliedVolatilities = as.vector(apply(df, 1, 
+                                               function (z) EuropeanOptionImpliedVolatility("put", value=z[26], 
+                                                                                            underlying=z[3], strike=1425, 
+                                                                                            dividendYield = z[2], 
+                                                                                            riskFreeRate = z[2], 
+                                                                                            maturity = z[1]/365, 
+                                                                                            volatility = 0.3)))*100
+currentPutValue = EuropeanOption(type = "put", underlying = df[1,3], strike = 1425, 
+                                  maturity = df[1,1]/365, riskFreeRate = df[1,2], 
+                                  volatility = put1425.impliedVolatilities[1]/100 , dividendYield = df[1,2])
+currentPutValue
+```
+```{r}
+putPNL.delta = as.numeric(currentPutValue)[2]*(df[2,3]-df[1,3])
+putPNL.gamma= 0.5*as.numeric(currentPutValue)[3]*(df[2,3]-df[1,3])^2
+putPNL.vega=as.numeric(currentPutValue)[4]/100*(put1425.impliedVolatilities[2]-put1425.impliedVolatilities[1])
+(putPNL.estimated=c(delta=putPNL.delta,gamma=putPNL.gamma,vega=putPNL.vega))
+```
+```{r}
+Row1Options = as.numeric(df[1,])
+V.1 = calculateImpliedVolatility(as.numeric(Row1Options))
+V.1
+```
+
+```{r}
+plot(V.1, type="b")
+```
+
+```{r}
+premia = rep(NA,11)
+for (i in 1:11){
+  premia[i] = unlist(EuropeanOption(type=ifelse(rownames(V.1)[i]=="P", "put", "call"),
+                                     underlying = Row1Options[3],
+                                     strike = V.1[i,1],
+                                     dividendYield = Row1Options[2],
+                                     riskFreeRate = Row1Options[2],
+                                     maturity = Row1Options[1]/365,
+                                     volatility = V.1[i,2]))[1]
+}
+checkPremia = cbind(strikes=Row1Options[4:14],
+                     calculatedOptionPremia=unlist(premia),
+                     originalOptionsPremia=Row1Options[15:25],
+                     differences=unlist(premia)-Row1Options[15:25])
+rownames(checkPremia) = colnames(df)[15:25]
+checkPremia
+```
+
+```{r}
+df[1:3,3]
+```
+```{r}
+V.2 = calculateImpliedVolatility(as.numeric(df[2,]))
+V.3 = calculateImpliedVolatility(as.numeric(df[3,]))
+xBounds = c(min(V.1[,1],V.2[,1],V.3[,1]), max(V.1[,1],V.2[,1],V.3[,1]))
+plotData.Strikes = seq(from=xBounds[1], to=xBounds[2], by =5)
+plotData = rep(NA, 3*length(plotData.Strikes))
+dim(plotData) = c(length(plotData.Strikes),3)
+(plotData = cbind(plotData.Strikes,plotData)) 
+```
+```{r}
+plotData[match(V.1[,1],plotData.Strikes),2] = V.1[,2]
+plotData[match(V.2[,1],plotData.Strikes),3]=V.2[,2]
+plotData[match(V.3[,1],plotData.Strikes),4]=V.3[,2]
+plotData
+```
+
+```{r}
+(volatilitiesATM = as.vector(apply((df), 1, function(z) calculateImpliedVolatility(z)[6,2]))*100)
+```
+
+```{r}
+put1425.impliedVolatilities = as.vector(apply(df, 1, function (z) EuropeanOptionImpliedVolatility("put", 
+                                                                                                  value=z[26], 
+                                                                                                  underlying=z[3], 
+                                                                                                  strike=1425, 
+                                                                                                  dividendYield = z[2], 
+                                                                                                  riskFreeRate = z[2], 
+                                                                                                  maturity = z[1]/365, 
+                                                                                                  volatility = 0.3)))*100
+```
+
+```{r}
+df2 = cbind(df, put1425.impliedVolatilities)
+head(df2)
+put1425History = c()
+put1425History = as.vector(apply(df2, 1, function(z) EuropeanOption(type="put",
+                                     underlying = z[3],
+                                     strike = 1425,
+                                     dividendYield = z[2],
+                                     riskFreeRate = z[2],
+                                     maturity = z[1]/365,
+                                     volatility = z[27]/100)$value))
+```
+
+```{r}
+currentPutValue = EuropeanOption(type="put",underlying = df[1,3], strike = 1425, maturity = df[1,1]/365, riskFreeRate = df[1,2], volatility =put1425.impliedVolatilities[1]/100 , dividendYield = df[1,2])
+currentPutValue
+```
+```{r}
+VectorizedEIV  =  Vectorize(EuropeanOptionImpliedVolatility)
+
+calculateImpliedVolatility  =  function(optionsData) {
+  myExpiry  =  optionsData$Expiry / 365
+  myRate  =  optionsData$OptRate
+  myUnderlying  =  optionsData$UndPr
+  myPutStrike  =  rep(1425, nrow(optionsData)) # set the strike to 1425
+  myPutPrice  =  optionsData$P1425 # get the price from the 26th column
+  impVolPut  =  VectorizedEIV("put",
+                             value = myPutPrice,
+                             underlying = myUnderlying,
+                             strike = myPutStrike,
+                             dividendYield = myRate,
+                             riskFreeRate = myRate,
+                             maturity = myExpiry,
+                             volatility = 0.3) # set the initial volatility guess
+  Result  =  data.frame(Volatility = as.numeric(impVolPut)) # create a dataframe with the results
+  rownames(Result)  =  rownames(optionsData)
+  Result
+}
+
+
+impliedVolPut1425  =  calculateImpliedVolatility(df)
+head(impliedVolPut1425)
+```
+
+```{r}
+VectorizedEO = Vectorize(EuropeanOption)
+optionP1425 = t(VectorizedEO(type=rep("put", nrow(df)),
+                      underlying=df$UndPr, 
+                      strike=rep(1425,nrow(df)), 
+                      dividendYield=df$OptRate,
+                      riskFreeRate=df$OptRate, 
+                      maturity=df$Expiry/365, 
+                      volatility=impliedVolPut1425$Volatility))
+optionDF = data.frame(value=as.numeric(optionP1425[,1]),
+                       delta=as.numeric(optionP1425[,2]),
+                       gamma=as.numeric(optionP1425[,3]),
+                       vega=as.numeric(optionP1425[,4]),
+                       theta=as.numeric(optionP1425[,5]),
+                       rho=as.numeric(optionP1425[,6]),
+                       divRho=as.numeric(optionP1425[,7]))
+rownames(optionP1425) = rownames(df)
+rownames(optionDF) = rownames(df)
+head(optionDF)
+```
+
+```{r}
+putPNL.delta = as.numeric(optionP1425[,2])*(diff(df$UndPr))
+putPNL.gamma = 0.5*as.numeric(optionP1425[,3])*(diff(df$UndPr))^2
+putPNL.vega = (as.numeric(optionP1425[,4])/100*(diff(impliedVolPut1425$Volatility)))*100
+putPNL.estimatedTotal = putPNL.delta+putPNL.gamma+putPNL.vega
+putPNL.actual = diff(df$P1425)
+```
+```{r}
+myResults = data.frame(estimated=putPNL.estimatedTotal[-length(putPNL.estimatedTotal)],actual=putPNL.actual,delta=putPNL.delta[-length(putPNL.estimatedTotal)],gamma=putPNL.gamma[-length(putPNL.estimatedTotal)], vega=putPNL.vega[-length(putPNL.estimatedTotal)])
+rownames(myResults) = rownames(df[-1,])
+# myResults = myResults[1:5,]
+myResults
+```

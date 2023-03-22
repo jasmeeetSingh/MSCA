@@ -1,0 +1,260 @@
+---
+title: "Financial Analytics Assignment 5"
+author: "Jasmeet Singh Sandhu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+# Analysis of Moody's Bond Yields
+
+```{r, warning=FALSE, include=FALSE }
+library(tseries)
+library(forecast)
+library(TSA)
+library(urca)
+# install.packages("fArma", repos="http://R-Forge.R-project.org")
+library(fArma)
+```
+
+```{r}
+datapath <- 'C:\\Users\\jasme\\Downloads\\UChicago\\Quarter2\\Financial Analytics\\Week5'
+df = read.csv(file = paste(datapath, "assignments_Fonancial Analytics (32001)_Lecture 5_MYieldsData.csv", sep = '\\'))
+aaa = df[,2]
+baa = df[,3]
+```
+
+```{r}
+# Plot the two time series
+plot(aaa, col="red", type="l", main="AAA and BAA rates")
+lines(baa, col="blue")
+```
+
+```{r}
+plot(aaa, baa, col = 'blue', xlab="AAA Yields", ylab="BAA Yields", main="Scatter plot of AAA and BAA")
+```
+The series look co-related but when rates are low, there are deviations but when rates are high, the series are corelated.
+
+
+```{r}
+linear = lm(baa~aaa)
+summary(linear)
+```
+
+```{r}
+qqnorm(linear$residuals, col = 'blue')
+acf(linear$residuals, col = 'blue',)
+Box.test(linear$residuals, lag=12, type="Ljung")
+```
+The residuals are not normally distributed, hence not a good model
+
+```{r}
+diff.aaa = diff(aaa)
+diff.baa = diff(baa)
+plot(diff.aaa, diff.baa, col = 'blue', main="Scatterplot of yield differences")
+```
+
+
+```{r}
+diff.linear = lm(diff.baa~diff.aaa-1)
+summary(diff.linear)
+
+qqnorm(diff.linear$residuals, col = 'blue')
+acf(diff.linear$residuals, col = 'blue')
+Box.test(diff.linear$residuals, lag=12, type="Ljung")
+```
+
+```{r}
+dlr.ts = ts(diff.linear$residuals, frequency = 12)
+auto.arima(dlr.ts, seasonal=T)
+```
+auto.arima suggesta ARMA(2,2) 
+
+```{r}
+arma22 = armaFit(~arma(2,2), data=dlr.ts)
+summary(arma22, which="all")
+```
+
+
+```{r}
+## Model = phi1*xt1 + phi2*xt2 + et + theta1*et1+theta2*et2
+arma22.res = residuals(arma22) 
+et2 = arma22.res
+head(et2)
+
+et1 = et2[-1]
+head(et1)
+
+et = et1[-1]
+head(et)
+```
+
+```{r}
+xt2 = dlr.ts[-length(dlr.ts)]
+xt1 = dlr.ts[-1]
+phi1 = arma22@fit$coef[1]
+phi2 = arma22@fit$coef[2]
+theta1 = arma22@fit$coef[3]
+theta2 = arma22@fit$coef[4]
+
+arma_model = phi1*xt1 + phi2*xt2 + et + theta1*et1+theta2*et2
+head(arma_model)
+```
+
+forecast one step ahead for BAA
+
+```{r}
+x_BAA = baa[-length(aaa)]
+
+forecast = x_BAA + diff.linear$coefficients * diff.aaa + arma_model
+
+matplot(cbind(baa[-1],forecast),type = "l",col = c("red","blue"),main= "3 year rate and forecast", ylab="BAA yield and forecast")
+legend("topright", c("BAA rates","forecasts"), lwd=2,col = c("red","blue"), bty="n")
+```
+
+```{r}
+diff.aaa.2 = diff.aaa[-1]
+
+diff.forecast = diff(forecast)
+
+cr = cbind(diff.forecast, diff.aaa.2)
+
+plot(
+  cr[,1], cr[,2], col = "blue", 
+  main = "Differences of forecasted BAA vs Differences of AAA Yields",
+  xlab="Difference of forecasts of BAA Rate",ylab="Differences of AAA Rate"
+)
+```
+
+## Cointegration
+
+```{r}
+data <- cbind(aaa, baa)
+
+cajo <- ca.jo(data, ecdet = "none", type="eigen", K=2, spec ="longrun")
+summary(cajo)
+```
+
+```{r}
+plotres(cajo)
+```
+
+```{r}
+cajo@teststat
+```
+
+```{r}
+cajo@cval
+```
+
+```{r}
+barplot(cajo@cval[1,],main = "Johansen test h<=1",col = "red")
+abline(h=cajo@teststat[1], col="blue")
+legend("topleft", c("critical values","test statistics"), lwd=2,col = c("red","blue"), bty="n")
+```
+
+```{r}
+barplot(cajo@cval[2,],main = "Johansen test h=0",col = "red", ylim=range(0:25))
+abline(h=cajo@teststat[2], col="blue")
+legend("topleft", c("critical values","test statistics"), lwd=2,col = c("red","blue"), bty="n")
+```
+From this we can conclude that the series are cointegrated even at 1% significance level.
+
+```{r}
+(a_1 <- cajo@V[,1])
+```
+
+```{r}
+z_t1= data %*% a_1
+matplot(z_t1,type ="l", main = "z(1,t)=a1'x(t)", col = "blue")
+```
+
+```{r}
+zar <-ar(z_t1,  aic = TRUE,method = "yule-walker")
+zar$order
+```
+
+```{r}
+armaRoots(zar$ar,lwd = 8, n.plot = 400, digits = 8)
+```
+
+```{r}
+a_2<- cajo@V[,2]
+z_t2= data %*% a_2
+matplot(z_t2,type ="l", main = "z(2,t)=a2'x(t)", col = "blue")
+```
+
+### Predicting using Cointegration model
+
+```{r}
+(mu <- cajo@GAMMA[,1])
+(PI <- cajo@PI)
+(Gamma <- cajo@GAMMA[,2:3])
+dX_1 <- cajo@Z0
+head(dX_1)
+X_2 <- cajo@ZK
+head(X_2)
+```
+
+```{r}
+deltaX_t_1 <- Gamma %*% t(dX_1) + PI %*%t(X_2) 
+deltaX_t_1<-apply(deltaX_t_1,2,"+",mu)
+nrowsdata <- dim(data)[1]
+data_t_2 = data[3:nrowsdata,]
+deltaX_t_1 <- t(deltaX_t_1)
+forecastX <- data_t_2+deltaX_t_1
+faaa = cbind(aaa[3:length(aaa)],forecastX[,1])
+matplot(faaa,col =c("red","blue"),type="l",main = "AAA Yield and prediction")
+legend("topright", c("AAA yield","prediction"), lwd=2,col = c("red","blue"), bty="n")
+```
+
+```{r}
+fbaa = cbind(baa[3:length(baa)],forecastX[,2])
+matplot(fbaa,col =c("red","blue"),type="l",main = "BAA yields and prediction")
+legend("topright", c("BAA yield","prediction"), lwd=2,col = c("red", "blue"), bty="n")
+```
+
+```{r}
+dfaaa = diff(faaa)
+dfbaa = diff(fbaa)
+plot(dfaaa,dfbaa,col ="blue", main = "Scatter plot for change of prediction for AAA and BAA yields",
+     xlab="Differenced forecasts of AAA Yields", ylab="Differenced forecasts of BAA Yields")
+```
+
+```{r}
+cerrorA = aaa[3:length(aaa)]-forecastX[,1]
+matplot(cerrorA,col = 'blue', main = "Residual Prediction of AAA Yield", type = "l")
+```
+
+```{r}
+cerrorB = baa[3:length(baa)]-forecastX[,2]
+matplot(cerrorB,col = 'blue', main = "Residual Prediction of BAA Yield",type = "l")
+```
+
+```{r}
+plot(cerrorA,cerrorB,col ="blue", main = "Scatter plot for residual prediction for AAA and BAA yields")
+```
+
+```{r}
+cor(cbind(cerrorA, cerrorB))
+```
+
+
+Compare the errors of the regression model with the cointegration model
+
+```{r}
+linreg.errors = baa[-1] - forecast
+errors = cbind(linreg.errors[-1], cerrorB)
+matplot(errors,type ="l",col = c("orange","blue"),main = "BAA Yield Residual Regression and Cointegration Model")
+legend("topright", c("regression errors","cointegration errors"), lwd=2,col = c("orange","blue"), bty="n")
+```
+
+The variance level of cointegration errors is lower than for errors of the regression model.
+
+Check how errors of the two models are related to each other
+
+```{r}
+plot(errors[,1],errors[,2],col = "blue", 
+     main = "Scatter Plot of Regression model Errors vs Cointegration errors",
+     xlab="Regression Model Errors", ylab="Cointegration Model Errors")
+```
+The model errors look uncorrelated.
+The Co integration performs good job of forecasting when comparing the error variance.

@@ -1,0 +1,122 @@
+---
+title: "Financial Analytics Assignment 4"
+author: "Jasmeet Singh Sandhu"
+date: "2023-01-29"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r, warning=FALSE, include=FALSE}
+library(tseries)
+library(forecast)
+library(TSA)
+```
+
+
+```{r}
+datapath <- 'C:\\Users\\jasme\\Downloads\\UChicago\\Quarter2\\Financial Analytics\\Week4'
+df = read.table(file = paste(datapath, "q-jnj-earns-9211.txt", sep = '\\'), header = T)
+head(df)
+```
+
+```{r}
+ln.earns = log(df$earns)
+plot(df$earns, type = "l", main = "Original earnings")
+plot(ln.earns, type = "l", main = "Log earnings")
+adf.test(ln.earns)
+```
+
+
+```{r}
+diff.ln.earns = diff(ln.earns)
+acf(diff.ln.earns)
+plot(diff.ln.earns, xlab = "index", ylab = "diff", type = "l")
+points(diff.ln.earns, pch = "c1", cex = 0.7)
+```
+
+```{r}
+s.diff.ln.earns = diff(ln.earns, 4) # Since we can seasonality in the graph, taking a seasonal difference = 4
+acf(s.diff.ln.earns)
+plot(s.diff.ln.earns, xlab = "index", ylab = "Seasonal diff", type = "l")
+points(s.diff.ln.earns, pch = "c1", cex = 0.7)
+```
+
+```{r}
+d.diff.ln.earns = diff(s.diff.ln.earns) # Taking second differencing
+acf(d.diff.ln.earns)
+plot(d.diff.ln.earns, xlab = "index", ylab = "Second diff", type = "l")
+points(d.diff.ln.earns, pch = "c1", cex = 0.7)
+```
+
+
+```{r}
+adf.test(diff.ln.earns)
+adf.test(s.diff.ln.earns)
+adf.test(d.diff.ln.earns)
+```
+
+After second differencing, the series is now stationary. The DF test gives a significant p-value and we can conclude it's stationary
+
+Find the time series model post second differencing
+```{r}
+d.earns.ts = ts(d.diff.ln.earns, frequency = 4)
+```
+
+```{r} 
+model = auto.arima(d.earns.ts, seasonal = T) 
+summary(model)
+```
+
+Perform model check
+```{r}
+# Check for iid assumptions
+Box.test(model$residuals, lag=12, type = "Ljung")
+```
+Since the iid assumptions are valid, we can proceed with the model
+
+
+Refit the model using data from 1992 to 2008
+```{r}
+length(df$earns)
+y = df$earns[1:68]
+ln.y = log(y)
+diff.ln.y = diff(ln.y)
+d.y.ts = ts(diff.ln.y, frequency=4)
+
+y.model = auto.arima(d.y.ts, seasonal = T)
+summary(y.model)
+```
+
+Perform 1 to 10 step forecasts of earnings and obtain a forecast plot
+
+```{r}
+pm1 = predict(y.model, 10)
+pm1
+```
+
+```{r}
+pred = pm1$pred
+se = pm1$se
+jnj = df$earns # actual observations
+fore = exp(pred+se^2/2) 
+s1 = sqrt(exp(2*pred+se^2)*(exp(se^2)-1))
+
+#Actual
+eps = jnj[51:78]
+```
+
+```{r}
+tdx = (c(1:28)+1)/4 + 2004 
+upp = c(jnj[68], fore + 2 * s1)
+low = c(jnj[68], fore - 2 * s1)
+```
+
+```{r}
+plot(tdx, eps, xlab = 'year', ylab = 'earnings', type = 'l', ylim = c(0.35,1.8))
+
+points(tdx[19:28], fore, pch = '*')
+lines(tdx[18:28], upp, lty = 3)
+lines(tdx[18:28], low, lty = 3)
+points(tdx[19:28], jnj[69:78], pch = 'o')
+```

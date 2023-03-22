@@ -1,0 +1,101 @@
+---
+title: "Financial Analytics Assignment 1 - Jasmeet Singh Sandhu"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-01-12"
+---
+
+```{r setup, include=FALSE}
+library(quantmod)
+library(e1071)   
+library(dplyr)
+```
+
+############################ Q 2.1 #######################################
+
+```{r}
+start_date = as.Date("2022-01-01")
+end_date = as.Date("2022-12-22")
+
+financialData <- new.env()
+getSymbols("^GSPC", env = financialData, src = "yahoo", from = start_date, to = end_date)
+
+sp500returns = financialData$GSPC
+sp500returns = dailyReturn(sp500returns)
+# head(sp500returns)
+
+getSymbols("DFF", env = financialData, src = "FRED", from = start_date, to = end_date)
+
+fedFundsRate = financialData$DFF[rownames(data.frame(sp500returns))]/100
+# tail(fedFundsRate)
+
+dailyExcessReturns = (sp500returns - fedFundsRate) * 100
+print("Daily Excess Returns")
+head(dailyExcessReturns)
+# plot(
+#     dailyExcessReturns, type = "l", 
+#      ylab = "Excess returns of SP500", 
+#      xlab = "Date", 
+#      main = "Daily Excess Returns S&P 500"
+# )
+
+```
+
+############################ Q 2.2 #######################################
+
+```{r}
+paste("Average Daily Excess Rate:", round(mean(dailyExcessReturns), digits = 3), "%")
+print("SP500 daily returns")
+head(sp500returns * 100)
+paste("Average Federal Funds Rate:", round(mean(fedFundsRate), digits = 3) * 100, "%")
+```
+
+############################ Q 3.1 #######################################
+
+```{r}
+start_date = as.Date("2022-07-20")
+end_date = as.Date("2022-12-22")
+
+getFX("GBP/USD", env = financialData, from = start_date, to = end_date)
+exchangeRateGBP = financialData$GBPUSD
+getFX("USD/JPY", env = financialData, from = start_date, to = end_date)
+exchangeRateJPY = financialData$USDJPY
+```
+
+############################ Q 3.2 #######################################
+
+```{r}
+logReturnsGBP = (dailyReturn(exchangeRateGBP, type = "log"))
+head(logReturnsGBP)
+print('')
+logReturnsJPY = (dailyReturn(exchangeRateJPY, type = "log"))
+head(logReturnsJPY)
+```
+
+############################ Q 3.3 #######################################
+
+```{r}
+paste("Min value (GBP): ", min(logReturnsGBP))
+paste("Mean value (GBP): ", mean(logReturnsGBP))
+paste("SD value (GBP): ", sd(logReturnsGBP))
+paste("Skewness value (GBP): ", skewness(logReturnsGBP))
+paste("Kurtosis value (GBP): ", kurtosis(logReturnsGBP))
+paste("Max value (GBP): ", max(logReturnsGBP))
+print('')
+paste("Min value (JPY): ", min(logReturnsJPY))
+paste("Mean value (JPY): ", mean(logReturnsJPY))
+paste("SD value (JPY): ", sd(logReturnsJPY))
+paste("Skewness value (JPY): ", skewness(logReturnsJPY))
+paste("Kurtosis value (JPY): ", kurtosis(logReturnsJPY))
+paste("Max value (JPY): ", max(logReturnsJPY))
+```
+
+############################ Q 3.4 #######################################
+```{r}
+t.test(logReturnsGBP)
+# Since the p-value is very large, we can't reject the null hypothesis (P-value = 0.93)
+
+t.test(logReturnsJPY)
+# Since the p-value is very large, we can't reject the null hypothesis (P-value = 0.55)
+```
